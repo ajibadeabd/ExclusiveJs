@@ -12,9 +12,9 @@
   .<span class="hljs-title function_">setRoutePath</span>("src/app/routes") <span class="hljs-comment">//   set route path// default route path is src/routes </span>
 
   .<span class="hljs-title function_">connectDocumentation</span>(
-     "/api-docs", // docs url
-    swaggerUi.serve, //swagger document
-    swaggerUi.setup(swaggerDocument) //swagger document
+                     "/api-docs", // docs url
+                     swaggerUi.serve, //swagger document
+                     swaggerUi.setup(swaggerDocument) //swagger document
   ) <span class="hljs-comment">// serve documentation</span>
 
   .<span class="hljs-title function_">injectPackages</span>() <span class="hljs-comment">// inject your installed packages</span>
