@@ -16,7 +16,7 @@
 
 <span class="hljs-title class_">ExclusiveJs</span>.<span class="hljs-title function_">init</span>(); -->
 
- #route
+ <h2>route</h2>
   .setApiPrefix("api/v1")
   .setRoutePath("src/app/routes")
   .setDebugger(true) // defaults if true
