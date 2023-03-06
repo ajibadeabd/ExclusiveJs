@@ -104,16 +104,24 @@ class  ExclusiveJs {
             let injectableModels = {}
             const  injectableClass = eachFile['injectableClass']
             const  injectableModel = eachFile['injectableModel']
-            const  circularDependencies = eachFile['circularDependencies']
-            
-            if(circularDependencies){
+            const  circularDependencies = eachFile['circularDependencies'] 
+            // if(circularDependencies){
 
               let circle = (circularDependencies)=>{
-             return circularDependencies.reduce((initialValue,dependency)=>{
+             return circularDependencies.reduce( (initialValue,dependency)=>{
               let innerClass = null
                 let innerModel = null
+
                 if(dependency?.injectableClass?.length>0){
+                if(dependency.circularDependencies && !dependency.visited){
+                  // mark the class as visited so as not to re compile it again 
+                dependency.visited = true
+                  innerClass =  circle([...dependency.injectableClass,...dependency.circularDependencies[0]()])
+
+                }else{
                   innerClass =  circle(dependency.injectableClass)
+
+                }
                 }
                 if(dependency.injectableModel?.length>0){
                   innerModel = this.#injectableModelFunction(dependency.injectableModel)
@@ -127,22 +135,26 @@ class  ExclusiveJs {
                      models: innerModel,
                      services:innerClass
                   })
-                  this.injectedPackages[dependency.class.name]=newClass
 
                   initialValue[dependency.class.name] = newClass
                 }
               return initialValue
             },{})
             }
-            circle(circularDependencies)
-            }
+            // circle(circularDependencies)
+            // }
  
             const injectableFunction = (injectableClass)=>{
             return injectableClass.reduce((initialValue,currentClass)=>{
                 let innerClass = null
                 let innerModel = null
                 if(currentClass?.injectableClass?.length>0){
-                  innerClass =  injectableFunction(currentClass.injectableClass)
+                  innerClass =  injectableFunction(currentClass?.injectableClass)
+                }
+                if(currentClass.circularDependencies){
+                  
+                 let resolvedDependency =  circle(currentClass.circularDependencies[0]())
+                 this.injectedPackages = resolvedDependency
                 }
                 
                 if(currentClass.injectableModel?.length>0){
@@ -165,6 +177,7 @@ class  ExclusiveJs {
             }
              
           if(injectableClass){
+
             injectableClasses = injectableFunction(injectableClass)
           }
           if(injectableModel){
@@ -172,12 +185,13 @@ class  ExclusiveJs {
 
 
           }
+
           if(eachFile["route"]){
             const routeClass = new eachFile["route"]( {
                     packages: this.packages ,
                     ...this.validator ,
                     models: injectableModels,
-                    services: {...injectableClasses,...this.injectedPackages},
+                    services: {...injectableClasses,  },
                   })
           for (const eachRoute in routeClass) {
             let [eachRouteMethod, sur] = eachRoute.split(".");
@@ -202,7 +216,7 @@ class  ExclusiveJs {
               {
                     packages: this.packages,
                     ...this.validator ,
-                     services: {...injectableClasses,...this.injectedPackages},
+                     services: {...injectableClasses},
                   })
             if (classMiddleware[eachRoute] && classMiddleware[eachRoute]().length>0) {
               middleWare.push(...classMiddleware[eachRoute]());
@@ -213,7 +227,6 @@ class  ExclusiveJs {
             }
           }
           
-
             
         this.app[eachRouteMethod](...middleWare, routeClass[eachRoute]);
             if (this.debug) {
