@@ -194,19 +194,28 @@ class  ExclusiveJs {
                     services: {...injectableClasses,  },
                   })
           for (const eachRoute in routeClass) {
-            let [eachRouteMethod, sur] = eachRoute.split(".");
-            if(!["post","get","delete","put","patch"].includes(eachRouteMethod)){
-              console.log('\x1b[31m%s\x1b[0m', 'function name must start with a "post","get","delete","put","patch" method');
-              console.log('\x1b[31m%s\x1b[0m', `Also ensure you make all non function property private like #${eachRouteMethod}`);
-              return
+            let [method, endpoint] = eachRoute.split(".");
+            if(!["post","get","delete","put","patch"].includes(method)){
+              
+              let[ methodParams, param] = method.split(":")
+              if(param && ["post","get","delete","put","patch"].includes(methodParams)){
+                endpoint= ":"+param
+                method=methodParams
+              } else{
+                console.log('\x1b[31m%s\x1b[0m', 'function name must start with a "post","get","delete","put","patch" method');
+                return 
+              }
                }
             let apiRoute = `/${this.apiPrefix}${prefix}/${route}`;
-            if (sur) {
-              sur = sur.replace(":", "/:");
-              apiRoute += sur;
+            if (endpoint) {
+
+            // endpoint = endpoint.replace(":", "/:");
+              apiRoute += endpoint;
+              // console.log({apiRoute,endpoint})
+
             }
             if (this.debug) {
-              console.log(apiRoute, eachRouteMethod + " request");
+              console.log(apiRoute, method + " request");
             }
             let middleWare = [apiRoute];
 
@@ -228,7 +237,7 @@ class  ExclusiveJs {
           }
           
             
-        this.app[eachRouteMethod](...middleWare, routeClass[eachRoute]);
+        this.app[method](...middleWare, routeClass[eachRoute]);
             if (this.debug) {
               console.log("------------------------------------------------");
             }
