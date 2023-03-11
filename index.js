@@ -1,26 +1,50 @@
 const fs = require('fs');
 const path = require('path'); 
 const express = require('express') 
+
 const app = express()
-
+const noSql = require("./database/noSql")
+const sql = require("./database/sql")
+ const dotenv = require("dotenv") 
 class  ExclusiveJs {
-
+ static #sequelize
+ static #setDatabaseArgs
+ static #databaseConnection
+ static #routes
   static instance = () => {
     if (this.newInstance) return this
     this.routePath = "src/routes";
     this.dirname = process.cwd() + "/";
     this.debug = true;
     this.apiPrefix = "api";
-    this.packages = {}
+    this.packages = this.#injectPackages()
     this.validator = {}
+    this.#routes = []
+    this.#sequelize= {}
+    this.databaseConnection= false
+    this.#setDatabaseArgs = {}
+    this.supportedDatabase = {
+      mongodb:"mongodb",
+      postgres:"postgres",
+      mysql:"mysql"
+    }
+    this.supportedOrm = { 
+      mongoose:"mongoose",
+      sequelize:"sequelize",
+    }
     this.injectedPackages = {}
-    this.port = process.env.PORT || 1234
+    this.port = process.env.PORT || "1234"
     this.app = null
     this.server = null
     this.newInstance = this.newInstance ? this.newInstance : new this();
     return this;
   };
+  
 
+  static setConfig = (config) => {
+    dotenv.config(config)
+    return this;
+  };
   static setDebugger = (debug) => {
     this.debug = debug;
     return this;
@@ -29,8 +53,66 @@ class  ExclusiveJs {
     this.port = port
     return this;
   };
+  static injectDatabase = (args) => {
+    this.databaseConnection = !this.databaseConnection 
+    this.setDatabaseArgs=args
+    this.database
+    return this;
 
-  static setValidator = (validator) => {
+  }
+    static #injectDatabase = async(args) => {
+    try {
+    if (typeof args !== "object"){
+      throw  "invalid parameter supplied"
+    }
+    if(!this.supportedDatabase[args.type.toLowerCase()]){
+      throw `Unsupported database. Supported database types are: ${Object.values(this.supportedDatabase).join(', ')}`
+
+    }
+    if(args?.type?.toLowerCase()=== this.supportedDatabase.mongodb && args?.databaseUrl){
+      if(args?.orm?.toLowerCase()===this.supportedOrm.mongoose){
+        
+        let data = await noSql[args?.orm?.toLowerCase()](this.packages.mongoose,args?.databaseUrl)
+        if(data.message){
+          throw data.message
+         }
+      }else{
+      throw `Exclusivejs only support mongoose  for ${args?.type}`
+
+      }
+    }else if(args?.type?.toLowerCase() === this.supportedDatabase.mysql){
+      if(args?.orm?.toLowerCase() === this.supportedOrm.sequelize){
+       let data = await sql[args?.orm?.toLowerCase()](this.packages?.sequelize,args?.databaseConfig,args?.type?.toLowerCase())
+       if(data.message){
+        throw data.message
+       } 
+       this.#sequelize = data
+       if(args.databaseConfig.synchronize){
+        console.log('\x1b[1m\x1b[32m%s\x1b[0m',"database syncing ...");
+      await  this.syncDatabase()
+       }
+        }else{
+        throw `Exclusivejs only support sequelize  for ${args?.type}`
+       
+      }
+    }  else if(args?.type?.toLowerCase() === this.supportedDatabase.postgres  && args?.databaseConfig){
+    }
+    else {
+      throw `Unsupported database type ${args.orm} for ${args?.type}`
+    }
+  }catch(error){
+ 
+    return {
+      error
+    }
+  }
+
+  };
+
+  static compile = (validator) => {
+
+  }
+    static setValidator = (validator) => {
     this.validator =  validator
     if(this.debug){
       console.log("validation in use")
@@ -38,17 +120,25 @@ class  ExclusiveJs {
     return this;
   };
 
-  static injectPackages = () => {
+  static  #injectPackages = () => {
     // only compile package your installed not inbuilt package
     const  packageJson =  fs.readFileSync("./package.json", "utf8");
 
     // Parse contents as JSON object
     const packageObject = JSON.parse(packageJson);
+    let allPackages = {}
 
     for (let eachPackages in packageObject.dependencies) {
-    this.packages[eachPackages] = require(eachPackages)
+      try{
+        allPackages[eachPackages] = require(eachPackages)
+
+      }catch(error){
+        console.log('\x1b[1m\x1b[31m%s\x1b[0m',` ${Object.values(error)?.[0]}  please install ${eachPackages}`)
+
+      }
     }
-    return this;
+   // console.log(allPackages)
+    return allPackages;
   };
 
   static setRoutePath = (path) => {
@@ -62,13 +152,19 @@ class  ExclusiveJs {
   };
 
   
-  static #injectableModelFunction = (injectableClass)=>{
-    return injectableClass.reduce((initialValue,currentModels)=>{
+  static #injectableModelFunction = (injectableModel)=>{
+    return injectableModel.reduce((initialValue,currentModels)=>{
          initialValue[currentModels.modelName] = currentModels
           return initialValue
         },{})
     }
-
+    static #injectableRepositoryFunction = (injectableModel)=>{
+      return injectableModel.reduce((initialValue,currentRepository)=>{
+          let repository = currentRepository({...this.#sequelize,packages:this.packages})
+          initialValue[repository.name] = repository
+            return initialValue
+          },{})
+      }
   static sortFile = (directory) => {
     return fs.readdirSync(directory).sort((a, b) => {
       if (a && b) {
@@ -87,10 +183,26 @@ class  ExclusiveJs {
     });
   };
 
-  static init = () => {
+  static init = async() => {
+    if(this.databaseConnection ){
+      let database = await this.#injectDatabase(this.setDatabaseArgs)
+    if(database?.error){
+      console.log('\x1b[1m\x1b[31m%s\x1b[0m', database.error)
+        return
+    }
+    await this.#initialize()
+    } else {
+    await this.#initialize()
+    }
+    return this
+  }
+    static setAppProvider = (appProvider) => {
+      this.app = appProvider;
+    }
+      static #initialize = async() => {
     this.app = this.app ? this.app : app;
 
-    let createRoute = (directory, prefix) => {
+    let createRoute = async (directory, prefix) => {
       this.sortFile(directory).forEach((file) => {
         const filePath = path.join(directory, file);
         if (fs.statSync(filePath).isDirectory()) {
@@ -104,9 +216,18 @@ class  ExclusiveJs {
             let injectableModels = {}
             const  injectableClass = eachFile['injectableClass']
             const  injectableModel = eachFile['injectableModel']
-            const  circularDependencies = eachFile['circularDependencies'] 
-            // if(circularDependencies){
+            const  injectableRepository = eachFile['injectableRepository']
+            let allInjectableRepository = {}
+            if(injectableRepository){
+              allInjectableRepository = injectableRepository.reduce((initialValue,currentRepository)=>{
+                // console.log(this.#sequelize)
+                let repository =currentRepository({...this.#sequelize,packages:this.packages})
+                initialValue[repository.name] = repository
+                return initialValue
+              },{})
 
+            }
+            
               let circle = (circularDependencies)=>{
              return circularDependencies.reduce( (initialValue,dependency)=>{
               let innerClass = null
@@ -141,13 +262,14 @@ class  ExclusiveJs {
               return initialValue
             },{})
             }
-            // circle(circularDependencies)
-            // }
+             
  
             const injectableFunction = (injectableClass)=>{
             return injectableClass.reduce((initialValue,currentClass)=>{
-                let innerClass = null
-                let innerModel = null
+
+                let innerClass = {}
+                let innerModel = {}
+                let innerRepository = { }
                 if(currentClass?.injectableClass?.length>0){
                   innerClass =  injectableFunction(currentClass?.injectableClass)
                 }
@@ -160,6 +282,9 @@ class  ExclusiveJs {
                 if(currentClass.injectableModel?.length>0){
                   innerModel = this.#injectableModelFunction(currentClass.injectableModel)
                 }
+                if(currentClass.injectableRepository?.length>0){
+                  innerRepository  = this.#injectableRepositoryFunction(currentClass.injectableRepository)
+                }
                 
                 if(currentClass.class){
 
@@ -168,6 +293,7 @@ class  ExclusiveJs {
                     packages: this.packages,
                     ...this.validator ,
                      models: innerModel,
+                     repositories: innerRepository,
                      services:{...innerClass,...this.injectedPackages}
                   })
                   initialValue[currentClass.class.name] = newClass
@@ -190,7 +316,8 @@ class  ExclusiveJs {
             const routeClass = new eachFile["route"]( {
                     packages: this.packages ,
                     ...this.validator ,
-                    models: injectableModels,
+                    repositories: allInjectableRepository,
+                    models:  injectableModels, 
                     services: {...injectableClasses,  },
                   })
           for (const eachRoute in routeClass) {
@@ -236,8 +363,11 @@ class  ExclusiveJs {
             }
           }
           
-            
-        this.app[method](...middleWare, routeClass[eachRoute]);
+            this.#routes.push({
+              method,
+              middleWare,
+              routeClass: routeClass[eachRoute]
+            })
             if (this.debug) {
               console.log("------------------------------------------------");
             }
@@ -247,12 +377,36 @@ class  ExclusiveJs {
       });
       return this
     };
-     createRoute(this.dirname + this.routePath, "");
-   this.server =  this.app.listen(this.port,()=>console.log("server listening on port",this.port))
+    await  createRoute(this.dirname + this.routePath, "");
+    // this.#routes
+    
+
+    for(let { method , middleWare,routeClass } of  this.#routes){
+      this.app[method](...middleWare, routeClass);
+      // console.log({ method , middleWare,routeClass })
+    }
+   this.server =  this.app.listen(this.port,()=> console.log('\x1b[1m\x1b[32m%s\x1b[0m',`server listening on port ${this.port}`))
   return this
   };
 
-  static close = () => {
+  static syncDatabase = async() => {
+      let models = Object.values(this.#sequelize.sequelize.models)
+      let allModels = {}
+      if(models.length>0){
+        for(let model of models){
+          allModels[model.name]=model
+        }
+      for(let model of models){
+        if(model.associate){
+          model.associate(allModels)
+        }
+      }
+      // this.#sequelize?.sequelize
+    await this.#sequelize?.sequelize?.sync()
+    }
+
+  }
+    static close = () => {
     this.debug = false
     this.server.close()
     return this
