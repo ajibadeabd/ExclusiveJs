@@ -5,21 +5,27 @@ const express = require('express')
 const app = express()
 const noSql = require("./database/noSql")
 const sql = require("./database/sql")
- const dotenv = require("dotenv") 
+const {   MicroServiceServer } = require("exclusivejs/microservices/server")
 class  ExclusiveJs {
  static #sequelize
  static #setDatabaseArgs
  static #databaseConnection
  static #routes
+ static #microServiceConfig
+ static #clientMicroServiceConfig 
+ static #clientMicroService
   static instance = () => {
     if (this.newInstance) return this
     this.routePath = "src/routes";
     this.dirname = process.cwd() + "/";
     this.debug = true;
+    this.microServices = {}
     this.apiPrefix = "api";
     this.packages = this.#injectPackages()
     this.validator = {}
     this.#routes = []
+    this.#microServiceConfig = []
+    this.#clientMicroServiceConfig = []
     this.#sequelize= {}
     this.databaseConnection= false
     this.#setDatabaseArgs = {}
@@ -33,7 +39,7 @@ class  ExclusiveJs {
       sequelize:"sequelize",
     }
     this.injectedPackages = {}
-    this.port = process.env.PORT || "1234"
+    this.port = process.env.PORT  || "1234"
     this.app = null
     this.server = null
     this.newInstance = this.newInstance ? this.newInstance : new this();
@@ -42,7 +48,7 @@ class  ExclusiveJs {
   
 
   static setConfig = (config) => {
-    dotenv.config(config)
+     this.packages?.dotenv?.config()
     return this;
   };
   static setDebugger = (debug) => {
@@ -60,6 +66,25 @@ class  ExclusiveJs {
     return this;
 
   }
+  static setMicroservicesServerConfig = (microServiceConfig)=>{
+    this.#microServiceConfig = microServiceConfig;
+    return this
+  }
+  static setMicroservicesClientConfig = (clientMicroServiceConfig)=>{
+    this.#clientMicroServiceConfig = clientMicroServiceConfig;
+    return this
+  }
+  static listenClientMicroservices = async ()=>{
+    if(this.#clientMicroServiceConfig?.length>0){
+    }
+    return this
+  }
+  static startServerMicroservices = async ()=>{
+    if(this.#microServiceConfig?.length>0){
+       this.microServiceServer = await  MicroServiceServer.setServerConfig(this.#microServiceConfig).init()
+    }
+    return this
+  }
     static #injectDatabase = async(args) => {
     try {
     if (typeof args !== "object"){
@@ -70,8 +95,8 @@ class  ExclusiveJs {
 
     }
     if(args?.type?.toLowerCase()=== this.supportedDatabase.mongodb && args?.databaseUrl){
+
       if(args?.orm?.toLowerCase()===this.supportedOrm.mongoose){
-        
         let data = await noSql[args?.orm?.toLowerCase()](this.packages.mongoose,args?.databaseUrl)
         if(data.message){
           throw data.message
@@ -91,14 +116,14 @@ class  ExclusiveJs {
         console.log('\x1b[1m\x1b[32m%s\x1b[0m',"database syncing ...");
       await  this.syncDatabase()
        }
-        }else{
+        } else{
         throw `Exclusivejs only support sequelize  for ${args?.type}`
        
       }
     }  else if(args?.type?.toLowerCase() === this.supportedDatabase.postgres  && args?.databaseConfig){
     }
     else {
-      throw `Unsupported database type ${args.orm} for ${args?.type}`
+      throw `error in connection please check again`
     }
   }catch(error){
  
@@ -184,16 +209,16 @@ class  ExclusiveJs {
   };
 
   static init = async() => {
+    this.port = process.env.PORT || this.port
     if(this.databaseConnection ){
       let database = await this.#injectDatabase(this.setDatabaseArgs)
     if(database?.error){
       console.log('\x1b[1m\x1b[31m%s\x1b[0m', database.error)
         return
     }
+    } 
+    
     await this.#initialize()
-    } else {
-    await this.#initialize()
-    }
     return this
   }
     static setAppProvider = (appProvider) => {
@@ -212,6 +237,7 @@ class  ExclusiveJs {
           let route = file.split(".")[0]
             .replace("index", "")
             .replace(/\s+/g, "");
+            if(route ) route ="/" +route
             let injectableClasses = {}
             let injectableModels = {}
             const  injectableClass = eachFile['injectableClass']
@@ -321,25 +347,32 @@ class  ExclusiveJs {
                     services: {...injectableClasses,  },
                   })
           for (const eachRoute in routeClass) {
+            
             let [method, endpoint] = eachRoute.split(".");
+            if(method==="event" || method==="message"){
+              console.log(`${method} ${endpoint} registered`)
+              console.log("------------------------------------------------")
+                this.microServiceServer[method]("tcp", endpoint,routeClass[`${method}.${endpoint}`])
+              continue 
+            }
+            
+            if(endpoint){
+            endpoint = "/"+endpoint
+            }
             if(!["post","get","delete","put","patch"].includes(method)){
               
               let[ methodParams, param] = method.split(":")
               if(param && ["post","get","delete","put","patch"].includes(methodParams)){
-                endpoint= ":"+param
+                endpoint= "/:"+param
                 method=methodParams
               } else{
                 console.log('\x1b[31m%s\x1b[0m', 'function name must start with a "post","get","delete","put","patch" method');
                 return 
               }
                }
-            let apiRoute = `/${this.apiPrefix}${prefix}/${route}`;
+            let apiRoute = `/${this.apiPrefix}${prefix}${route}`;
             if (endpoint) {
-
-            // endpoint = endpoint.replace(":", "/:");
               apiRoute += endpoint;
-              // console.log({apiRoute,endpoint})
-
             }
             if (this.debug) {
               console.log(apiRoute, method + " request");
@@ -362,7 +395,7 @@ class  ExclusiveJs {
               middleWare.push(...overallMiddleware());
             }
           }
-          
+          // console.log(midd)
             this.#routes.push({
               method,
               middleWare,
