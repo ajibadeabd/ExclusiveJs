@@ -1,11 +1,10 @@
+const express = require('express') 
 const fs = require('fs');
 const path = require('path'); 
-const express = require('express') 
-
 const app = express()
 const noSql = require("./database/noSql")
 const sql = require("./database/sql")
-const {   MicroServiceServer } = require("exclusivejs/microservices/server")
+const { MicroServiceServer } = require("./microservices/server")
 class  ExclusiveJs {
  static #sequelize
  static #setDatabaseArgs
@@ -62,9 +61,17 @@ class  ExclusiveJs {
   static injectDatabase = (args) => {
     this.databaseConnection = !this.databaseConnection 
     this.setDatabaseArgs=args
-    this.database
-    return this;
+    if(this.databaseConnection ){
+      let database =  this.#injectDatabase(this.setDatabaseArgs)
+      database.then(database=>{
 
+    if(database?.error){
+      console.log('\x1b[1m\x1b[31m%s\x1b[0m', database.error)
+        return
+    }
+      })
+    } 
+    return this;
   }
   static setMicroservicesServerConfig = (microServiceConfig)=>{
     this.#microServiceConfig = microServiceConfig;
@@ -208,16 +215,13 @@ class  ExclusiveJs {
     });
   };
 
+  static setMiddleware = (middleware) => {
+    let appInstance = app || this.app
+    middleware(appInstance)
+    return this;
+  };
   static init = async() => {
     this.port = process.env.PORT || this.port
-    if(this.databaseConnection ){
-      let database = await this.#injectDatabase(this.setDatabaseArgs)
-    if(database?.error){
-      console.log('\x1b[1m\x1b[31m%s\x1b[0m', database.error)
-        return
-    }
-    } 
-    
     await this.#initialize()
     return this
   }
@@ -411,13 +415,13 @@ class  ExclusiveJs {
       return this
     };
     await  createRoute(this.dirname + this.routePath, "");
-    // this.#routes
     
 
     for(let { method , middleWare,routeClass } of  this.#routes){
       this.app[method](...middleWare, routeClass);
       // console.log({ method , middleWare,routeClass })
     }
+   await this.errorhandler(this.app)
    this.server =  this.app.listen(this.port,()=> console.log('\x1b[1m\x1b[32m%s\x1b[0m',`server listening on port ${this.port}`))
   return this
   };
@@ -463,12 +467,86 @@ class  ExclusiveJs {
     return this
   }
   static setErrorHandler = (errorhandler) => {
-
-    errorhandler(this.app || app)
+    this.errorhandler=errorhandler
     if(this.debug){
       console.log("error handler in use")
     }
     return this
+  }
+  static getService = (Service) => {
+    let circle = (circularDependencies)=>{
+             return circularDependencies.reduce( (initialValue,dependency)=>{
+              let innerClass = null
+                let innerModel = null
+
+                if(dependency?.injectableClass?.length>0){
+                if(dependency.circularDependencies && !dependency.visited){
+                  // mark the class as visited so as not to re compile it again 
+                dependency.visited = true
+                  innerClass =  circle([...dependency.injectableClass,...dependency.circularDependencies[0]()])
+
+                }else{
+                  innerClass =  circle(dependency.injectableClass)
+
+                }
+                }
+                if(dependency.injectableModel?.length>0){
+                  innerModel = this.#injectableModelFunction(dependency.injectableModel)
+                }
+
+                if(dependency.class){
+                const newClass = new dependency.class(
+                  {
+                    packages: this.packages,
+                    ...this.validator ,
+                     models: innerModel,
+                     services:innerClass
+                  })
+
+                  initialValue[dependency.class.name] = newClass
+                }
+              return initialValue
+            },{})
+            }
+    const injectableFunction = (...injectableClass)=>{
+            return injectableClass.reduce((initialValue,currentClass)=>{
+
+                let innerClass = {}
+                let innerModel = {}
+                let innerRepository = { }
+                if(currentClass?.injectableClass?.length>0){
+                  innerClass =  injectableFunction(currentClass?.injectableClass)
+                }
+                if(currentClass.circularDependencies){
+                  
+                 let resolvedDependency =  circle(currentClass.circularDependencies[0]())
+                 this.injectedPackages = resolvedDependency
+                }
+                
+                if(currentClass.injectableModel?.length>0){
+                  innerModel = this.#injectableModelFunction(currentClass.injectableModel)
+                }
+                if(currentClass.injectableRepository?.length>0){
+                  innerRepository  = this.#injectableRepositoryFunction(currentClass.injectableRepository)
+                }
+                
+                if(currentClass.class){
+
+                const newClass = new currentClass.class(
+                  {
+                    packages: this.packages,
+                    ...this.validator ,
+                     models: innerModel,
+                     repositories: innerRepository,
+                     services:{...innerClass,...this.injectedPackages}
+                  })
+                  initialValue[currentClass.class.name] = newClass
+                }
+                  return initialValue
+                },{})
+            }
+    return injectableFunction(Service)
+     
   }
   static validateFile = (file) => {
     return (
