@@ -257,43 +257,6 @@ class  ExclusiveJs {
               },{})
 
             }
-            
-              let circle = (circularDependencies)=>{
-             return circularDependencies.reduce( (initialValue,dependency)=>{
-              let innerClass = null
-                let innerModel = null
-
-                if(dependency?.injectableClass?.length>0){
-                if(dependency.circularDependencies && !dependency.visited){
-                  // mark the class as visited so as not to re compile it again 
-                dependency.visited = true
-                  innerClass =  circle([...dependency.injectableClass,...dependency.circularDependencies[0]()])
-
-                }else{
-                  innerClass =  circle(dependency.injectableClass)
-
-                }
-                }
-                if(dependency.injectableModel?.length>0){
-                  innerModel = this.#injectableModelFunction(dependency.injectableModel)
-                }
-
-                if(dependency.class){
-                const newClass = new dependency.class(
-                  {
-                    packages: this.packages,
-                    ...this.validator ,
-                     models: innerModel,
-                     services:innerClass
-                  })
-
-                  initialValue[dependency.class.name] = newClass
-                }
-              return initialValue
-            },{})
-            }
-             
- 
             const injectableFunction = (injectableClass)=>{
             return injectableClass.reduce((initialValue,currentClass)=>{
 
@@ -305,7 +268,7 @@ class  ExclusiveJs {
                 }
                 if(currentClass.circularDependencies){
                   
-                 let resolvedDependency =  circle(currentClass.circularDependencies[0]())
+                 let resolvedDependency = this.#resolverCircularDependency(currentClass.circularDependencies[0]())
                  this.injectedPackages = resolvedDependency
                 }
                 
@@ -473,9 +436,8 @@ class  ExclusiveJs {
     }
     return this
   }
-  static getService = (Service) => {
-    let circle = (circularDependencies)=>{
-             return circularDependencies.reduce( (initialValue,dependency)=>{
+  static #resolverCircularDependency = (circularDependencies ) => {
+    return circularDependencies.reduce( (initialValue,dependency)=>{
               let innerClass = null
                 let innerModel = null
 
@@ -483,10 +445,10 @@ class  ExclusiveJs {
                 if(dependency.circularDependencies && !dependency.visited){
                   // mark the class as visited so as not to re compile it again 
                 dependency.visited = true
-                  innerClass =  circle([...dependency.injectableClass,...dependency.circularDependencies[0]()])
+                  innerClass =  this.#resolverCircularDependency([...dependency.injectableClass,...dependency.circularDependencies[0]()])
 
                 }else{
-                  innerClass =  circle(dependency.injectableClass)
+                  innerClass = this.#resolverCircularDependency(dependency.injectableClass)
 
                 }
                 }
@@ -507,19 +469,19 @@ class  ExclusiveJs {
                 }
               return initialValue
             },{})
-            }
-    const injectableFunction = (...injectableClass)=>{
+  }
+    static #injectableFunction = (injectableClass)=>{
             return injectableClass.reduce((initialValue,currentClass)=>{
 
                 let innerClass = {}
                 let innerModel = {}
                 let innerRepository = { }
                 if(currentClass?.injectableClass?.length>0){
-                  innerClass =  injectableFunction(currentClass?.injectableClass)
+                  innerClass =  this.#injectableFunction(currentClass?.injectableClass)
                 }
                 if(currentClass.circularDependencies){
                   
-                 let resolvedDependency =  circle(currentClass.circularDependencies[0]())
+                 let resolvedDependency = this.#resolverCircularDependency(currentClass.circularDependencies[0]())
                  this.injectedPackages = resolvedDependency
                 }
                 
@@ -545,8 +507,8 @@ class  ExclusiveJs {
                   return initialValue
                 },{})
             }
-    return injectableFunction(Service)
-     
+  static getService = (Service) => {
+    return this.#injectableFunction([Service])
   }
   static validateFile = (file) => {
     return (
