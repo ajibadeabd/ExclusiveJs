@@ -1,6 +1,7 @@
 const express = require('express') 
 const fs = require('fs');
 const path = require('path'); 
+const schedule = require('node-schedule');
 const app = express()
 const noSql = require("./database/noSql")
 const sql = require("./database/sql")
@@ -12,10 +13,12 @@ class  ExclusiveJs {
  static #routes
  static #microServiceConfig
  static #clientMicroServiceConfig 
+ 
  static #clientMicroService
   static instance = () => {
     if (this.newInstance) return this
     this.routePath = "src/routes";
+    this.standAloneService=["cron"]
     this.dirname = process.cwd() + "/";
     this.debug = true;
     this.microServices = {}
@@ -251,58 +254,19 @@ class  ExclusiveJs {
             if(injectableRepository){
               allInjectableRepository = injectableRepository.reduce((initialValue,currentRepository)=>{
                 // console.log(this.#sequelize)
-                let repository =currentRepository({...this.#sequelize,packages:this.packages})
+                let repository = currentRepository({...this.#sequelize,packages:this.packages})
                 initialValue[repository.name] = repository
                 return initialValue
               },{})
 
-            }
-            const injectableFunction = (injectableClass)=>{
-            return injectableClass.reduce((initialValue,currentClass)=>{
-
-                let innerClass = {}
-                let innerModel = {}
-                let innerRepository = { }
-                if(currentClass?.injectableClass?.length>0){
-                  innerClass =  injectableFunction(currentClass?.injectableClass)
-                }
-                if(currentClass.circularDependencies){
-                  
-                 let resolvedDependency = this.#resolverCircularDependency(currentClass.circularDependencies[0]())
-                 this.injectedPackages = resolvedDependency
-                }
-                
-                if(currentClass.injectableModel?.length>0){
-                  innerModel = this.#injectableModelFunction(currentClass.injectableModel)
-                }
-                if(currentClass.injectableRepository?.length>0){
-                  innerRepository  = this.#injectableRepositoryFunction(currentClass.injectableRepository)
-                }
-                
-                if(currentClass.class){
-
-                const newClass = new currentClass.class(
-                  {
-                    packages: this.packages,
-                    ...this.validator ,
-                     models: innerModel,
-                     repositories: innerRepository,
-                     services:{...innerClass,...this.injectedPackages}
-                  })
-                  initialValue[currentClass.class.name] = newClass
-                }
-                  return initialValue
-                },{})
-            }
-             
+            } 
+           
           if(injectableClass){
 
-            injectableClasses = injectableFunction(injectableClass)
+            injectableClasses = this.#injectableFunction(injectableClass)
           }
           if(injectableModel){
             injectableModels = this.#injectableModelFunction(injectableModel)
-
-
           }
 
           if(eachFile["route"]){
@@ -386,9 +350,72 @@ class  ExclusiveJs {
     }
    await this.errorhandler(this.app)
    this.server =  this.app.listen(this.port,()=> console.log('\x1b[1m\x1b[32m%s\x1b[0m',`server listening on port ${this.port}`))
-  return this
+   await this.#standAloneService()
+   return this
   };
+  static #standAloneService = async () => {
+    let serviceFilePath = this.dirname + this.routePath.split("/routes")?.[0]+"/controllers/"
 
+// Check if the directory exists
+if (fs.existsSync(serviceFilePath)) {
+  // Read the contents of the directory
+  return fs.readdir(serviceFilePath, (err, files) => {
+    if (err) {
+      console.error(err);
+      return;
+    }
+    
+    files.forEach((file) => {
+      try{
+
+      let eachService = require(serviceFilePath+file,"utf-8")
+      if( 
+        this.standAloneService.includes( eachService?.type?.toLowerCase()) && eachService.class !==undefined
+         ){
+           let injectableClasses = {}
+            let injectableModels = {}
+            const  injectableClass = eachService['injectableClass']
+            const  injectableModel = eachService['injectableModel']
+            const  injectableRepository = eachService['injectableRepository']
+            let allInjectableRepository = {}
+            if(injectableRepository){
+              allInjectableRepository = injectableRepository.reduce((initialValue,currentRepository)=>{
+                // console.log(this.#sequelize)
+                let repository = currentRepository({...this.#sequelize,packages:this.packages})
+                initialValue[repository.name] = repository
+                return initialValue
+              },{})
+            } 
+            if(injectableClass){
+            injectableClasses = this.#injectableFunction(injectableClass)
+          }
+          if(injectableModel){
+            injectableModels = this.#injectableModelFunction(injectableModel)
+          }
+          const cronServices = new eachService["class"]( {
+                    packages: this.packages ,
+                    ...this.validator ,
+                    repositories: allInjectableRepository,
+                    models:  injectableModels, 
+                    services: {...injectableClasses,  },
+                  })
+                  for(let eachCronService in cronServices ){
+                    schedule.scheduleJob((eachService?.time[eachCronService] || "*/1 * * * *"),cronServices[eachCronService])
+                  }
+         } 
+      }catch(error){}
+
+    })
+
+  });
+} else {
+  console.error(`Directory ${path} does not exist`);
+}
+
+    
+
+  }          
+   
   static syncDatabase = async() => {
       let models = Object.values(this.#sequelize.sequelize.models)
       let allModels = {}
