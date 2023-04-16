@@ -278,7 +278,14 @@ class  ExclusiveJs {
                     services: {...injectableClasses,  },
                   })
           for (const eachRoute in routeClass) {
-            
+            let apiRoute = `${prefix}${route}`;
+const routeRules = eachFile["rules"]?.[eachRoute];
+
+if (routeRules) {
+  apiRoute = routeRules.baseUrl === false ? `${prefix}${route}` : `/${this.apiPrefix}${apiRoute}`;
+} else {
+  apiRoute = `/${this.apiPrefix}${apiRoute}`;
+}       
             let [method, endpoint] = eachRoute.split(".");
             if(method==="event" || method==="message"){
               console.log(`${method} ${endpoint} registered`)
@@ -290,6 +297,7 @@ class  ExclusiveJs {
             if(endpoint){
             endpoint = "/"+endpoint
             }
+
             if(!["post","get","delete","put","patch"].includes(method)){
               
               let[ methodParams, param] = method.split(":")
@@ -301,7 +309,6 @@ class  ExclusiveJs {
                 return 
               }
                }
-            let apiRoute = `/${this.apiPrefix}${prefix}${route}`;
             if (endpoint) {
               apiRoute += endpoint;
             }
@@ -361,7 +368,6 @@ if (fs.existsSync(serviceFilePath)) {
   // Read the contents of the directory
   return fs.readdir(serviceFilePath, (err, files) => {
     if (err) {
-      console.error(err);
       return;
     }
     
